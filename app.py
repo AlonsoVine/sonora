@@ -117,8 +117,9 @@ def parse_archive_url(url: str) -> str:
     hostname = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or hostname not in {"archive.org", "www.archive.org"}:
         raise ValueError(
-            "Fuente no admitida. Usa un enlace HTTPS de un elemento de Internet Archive "
-            "(archive.org/details/...)."
+            "Fuente no admitida. Sonora no admite YouTube ni listas de reproducción. "
+            "Usa un enlace HTTPS de un elemento de Internet Archive "
+            "(https://archive.org/details/identificador) con una licencia compatible."
         )
     parts = [part for part in parsed.path.split("/") if part]
     if len(parts) != 2 or parts[0] != "details":

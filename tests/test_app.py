@@ -26,6 +26,10 @@ class PlaylistValidationTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 app.parse_archive_url(url)
 
+    def test_unsupported_source_error_explains_youtube_is_not_supported(self):
+        with self.assertRaisesRegex(ValueError, "no admite YouTube ni listas de reproducción"):
+            app.parse_archive_url("https://www.youtube.com/watch?v=example&list=example")
+
     def test_only_explicitly_supported_licenses_pass(self):
         self.assertTrue(app.license_is_allowed("https://creativecommons.org/licenses/by/4.0/"))
         self.assertTrue(app.license_is_allowed("http://creativecommons.org/publicdomain/zero/1.0/"))
@@ -104,6 +108,8 @@ class PlaylistValidationTests(unittest.TestCase):
                 page = response.read().decode("utf-8")
                 self.assertEqual(response.status, 200)
                 self.assertIn("/static/styles.css", page)
+                self.assertIn("no admite YouTube ni listas de reproducción", page)
+                self.assertIn("URL DEL ELEMENTO DE INTERNET ARCHIVE", page)
             for asset in ("styles.css", "app.js"):
                 with urllib.request.urlopen(f"{base_url}/static/{asset}") as response:
                     self.assertEqual(response.status, 200)
