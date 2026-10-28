@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101412">
+  <title>Sonora — tu biblioteca autorizada</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Sonora, inicio">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span>sonora<span class="brand-dot">.</span></span>
+      </a>
+      <div class="sidebar-label">ESPACIO PERSONAL</div>
+      <nav aria-label="Navegación principal">
+        <a class="nav-link active" href="#inicio"><span class="nav-icon">⌂</span> Biblioteca</a>
+        <a class="nav-link" href="#trabajos"><span class="nav-icon">◷</span> Actividad</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-orb"></div>
+        <p>Tu música,<br><strong>con permiso.</strong></p>
+        <span>Solo fuentes autorizadas</span>
+      </div>
+      <div class="sidebar-foot"><span class="live-dot"></span> SERVICIO LOCAL ACTIVO</div>
+    </aside>
+
+    <main id="inicio">
+      <header class="topbar">
+        <div class="breadcrumb">TU ESPACIO <span>/</span> BIBLIOTECA</div>
+        <div class="topbar-right">
+          <span class="privacy"><span class="lock-icon">⌑</span> PROCESAMIENTO LOCAL</span>
+          <div class="avatar">S</div>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-line"></span> AUDIO CON LICENCIA ABIERTA</div>
+          <h1>Tu colección,<br><em>a tu manera.</em></h1>
+          <p>Organiza y convierte audio que tienes permiso para descargar. Sencillo, transparente y en tu dispositivo.</p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="art-ring ring-one"></div><div class="art-ring ring-two"></div>
+          <div class="vinyl"><div class="vinyl-label"><span>sonora</span><b>♪</b></div></div>
+          <div class="art-spark spark-one">✳</div><div class="art-spark spark-two">✦</div>
+        </div>
+      </section>
+
+      <section class="import-card" aria-labelledby="import-title">
+        <div class="card-heading">
+          <div class="step-number">01</div>
+          <div>
+            <h2 id="import-title">Añadir una colección</h2>
+            <p>Empieza con un elemento de audio autorizado de Internet Archive.</p>
+          </div>
+        </div>
+        <form id="job-form">
+          <label for="playlist-url">URL DEL ELEMENTO</label>
+          <div class="url-row">
+            <div class="input-wrap"><span class="link-icon">↗</span>
+              <input id="playlist-url" name="url" type="url" placeholder="https://archive.org/details/..." required autocomplete="url">
+            </div>
+            <div class="quality-wrap">
+              <label for="bitrate">CALIDAD</label>
+              <select id="bitrate" name="bitrate">
+                <option value="128">128 kbps</option>
+                <option value="192" selected>192 kbps</option>
+                <option value="256">256 kbps</option>
+                <option value="320">320 kbps</option>
+              </select>
+            </div>
+            <button type="submit" id="start-button"><span>Añadir colección</span><b>↗</b></button>
+          </div>
+          <div class="form-feedback" id="form-feedback" role="alert" hidden></div>
+        </form>
+        <div class="permission-note"><span class="note-icon">i</span><span>Solo se aceptan elementos con licencia CC0, dominio público, CC BY o CC BY-SA. Comprueba siempre los derechos y condiciones del contenido. <a href="https://archive.org" target="_blank" rel="noreferrer">Acerca de Internet Archive ↗</a></span></div>
+      </section>
+
+      <section class="work-section" id="trabajos" aria-labelledby="work-title">
+        <div class="section-heading">
+          <div><div class="eyebrow"><span class="eyebrow-line"></span> EN CURSO Y RECIENTES</div><h2 id="work-title">Tus trabajos</h2></div>
+          <span class="work-count" id="work-count">0 TRABAJOS</span>
+        </div>
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon"><span>♫</span></div>
+          <h3>Tu próxima escucha empieza aquí</h3>
+          <p>Añade una colección autorizada y aparecerá aquí su progreso pista a pista.</p>
+        </div>
+        <div class="jobs-list" id="jobs-list" aria-live="polite"></div>
+      </section>
+
+      <footer><span>SONORA <span class="brand-dot">·</span> BIBLIOTECA PERSONAL</span><span>Las descargas dependen de la licencia de cada contenido.</span></footer>
+    </main>
+  </div>
+</body>
+</html>

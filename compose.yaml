@@ -1,0 +1,14 @@
+services:
+  sonora:
+    build:
+      context: .
+    image: sonora:local
+    container_name: sonora
+    platform: linux/arm64
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./musica:/music
+    user: "${SONORA_UID:-1000}:${SONORA_GID:-1000}"
+    restart: unless-stopped
+    init: true
