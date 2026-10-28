@@ -28,6 +28,10 @@ En Windows, instala Python 3.10+ y proporciona un `ffmpeg.exe` obtenido de una f
 
 Distribuye juntos `dist\Sonora.exe` y `dist\ffmpeg.exe` (además de las DLL que el build de ffmpeg necesite; el script copia las DLL contiguas). Usa un build de ffmpeg para Windows de una fuente de confianza y respeta sus términos de distribución. No se necesita instalador ni una instalación de Python en el equipo de destino. Al ejecutar Sonora, se abrirá el navegador y la carpeta de salida será `dist\musica`, junto al ejecutable. La carpeta se crea al iniciar; si no es escribible, se informa del problema.
 
+### Obtener el ejecutable desde GitHub
+
+GitHub Actions construye la versión portátil en Windows al abrir un pull request hacia `main`, al actualizar `main` o manualmente desde la pestaña **Actions**. En la ejecución completada, descarga **Sonora-windows-portable** en la sección **Artifacts**. El ZIP contiene `Sonora.exe`, `ffmpeg.exe` y las DLL necesarias; extrae todos los archivos en la misma carpeta antes de ejecutar Sonora. El artefacto se conserva durante 14 días.
+
 ## Raspberry Pi 4/5 (Raspberry Pi OS de 64 bits)
 
 Instala Docker Engine y el complemento Docker Compose. La imagen `python:3.12-slim` y ffmpeg se construyen explícitamente como Linux ARM64. La carpeta persistente es `./musica` del proyecto, montada en `/music` dentro del contenedor. No se puede cambiar desde la interfaz. Antes de iniciar, crea `musica` con el usuario propietario de los archivos y configura el UID/GID que devuelve `id -u` e `id -g` en un `.env` junto a `compose.yaml`:

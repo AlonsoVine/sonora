@@ -1,0 +1,54 @@
+name: Build Windows executable
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Download FFmpeg
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "ffmpeg-release-essentials.zip"
+          $extractPath = Join-Path $env:RUNNER_TEMP "sonora-ffmpeg"
+          Invoke-WebRequest `
+            -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+            -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $extractPath
+          $ffmpeg = Get-ChildItem -LiteralPath $extractPath -Filter "ffmpeg.exe" -File -Recurse |
+            Select-Object -First 1
+          if ($null -eq $ffmpeg) {
+            throw "No se encontró ffmpeg.exe en el paquete descargado."
+          }
+          "FFMPEG_PATH=$($ffmpeg.FullName)" >> $env:GITHUB_ENV
+
+      - name: Build portable application
+        shell: pwsh
+        run: .\scripts\build-windows.ps1 -FfmpegPath "$env:FFMPEG_PATH"
+
+      - name: Upload portable application
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sonora-windows-portable
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
