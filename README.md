@@ -51,6 +51,7 @@ Abre `http://IP-DE-LA-PI:8765` desde un equipo de la red doméstica. No configur
 2. Sonora valida el dominio, consulta la licencia y descubre archivos de audio. Un permiso ausente o no admitido detiene el trabajo con un mensaje visible.
 3. Las pistas se convierten en una subcarpeta con el título del elemento dentro de `musica`. Si ya existe el MP3 de destino, se omite; nunca se sobrescribe.
 4. La interfaz distingue pistas procesadas, omitidas y fallidas, con el mensaje concreto de cada error.
+5. Se conservan hasta 50 trabajos recientes en `.sonora-history.json` dentro de `musica`; los que estén en curso se conservan y los que estaban activos al cerrar la app aparecen como interrumpidos. Usa **Abrir carpeta de música** para abrir `musica` desde la interfaz.
 
 En contenedor, ffmpeg ya está incluido. Para ejecutar desde código debe estar instalado localmente o indicarse con `FFMPEG_PATH`. Sonora requiere conexión a Internet para consultar metadatos y obtener archivos de Internet Archive.
 

@@ -6,6 +6,8 @@ const feedback = document.querySelector("#form-feedback");
 const jobsList = document.querySelector("#jobs-list");
 const emptyState = document.querySelector("#empty-state");
 const workCount = document.querySelector("#work-count");
+const historyFeedback = document.querySelector("#history-feedback");
+const openFolderButton = document.querySelector("#open-folder-button");
 const jobs = new Map();
 const terminalStatuses = new Set(["completed", "completed_with_errors", "failed"]);
 const statusLabels = {
@@ -28,6 +30,12 @@ const trackLabels = {
 function showFeedback(message) {
   feedback.textContent = message;
   feedback.hidden = !message;
+}
+
+function showHistoryFeedback(message, isError = false) {
+  historyFeedback.textContent = message;
+  historyFeedback.hidden = !message;
+  historyFeedback.classList.toggle("error", isError);
 }
 
 function escapeHtml(value) {
@@ -104,6 +112,38 @@ async function pollJob(id) {
   }
 }
 
+async function loadJobs() {
+  try {
+    const response = await fetch("/api/jobs", { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "No se pudo cargar el historial.");
+    for (const job of result.jobs) jobs.set(job.id, job);
+    openFolderButton.hidden = !result.canOpenFolder;
+    refreshJobs();
+    showHistoryFeedback(result.historyWarning || "", Boolean(result.historyWarning));
+    for (const job of jobs.values()) {
+      if (!terminalStatuses.has(job.status)) pollJob(job.id);
+    }
+  } catch (error) {
+    showHistoryFeedback(`No se pudo cargar el historial: ${error.message}`, true);
+  }
+}
+
+openFolderButton.addEventListener("click", async () => {
+  openFolderButton.disabled = true;
+  showHistoryFeedback("");
+  try {
+    const response = await fetch("/api/open-folder", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "No se pudo abrir la carpeta.");
+    showHistoryFeedback(`Carpeta de música abierta: ${result.folder}`);
+  } catch (error) {
+    showHistoryFeedback(error.message, true);
+  } finally {
+    openFolderButton.disabled = false;
+  }
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   showFeedback("");
@@ -131,3 +171,5 @@ form.addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
+
+loadJobs();

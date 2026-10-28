@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import ipaddress
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -22,6 +24,8 @@ from typing import Any
 
 APP_NAME = "Sonora"
 BITRATES = {128, 192, 256, 320}
+MAX_HISTORY_JOBS = 50
+HISTORY_FILENAME = ".sonora-history.json"
 ALLOWED_LICENSES = {
     ("creativecommons.org", "/publicdomain/zero/1.0"),
     ("creativecommons.org", "/publicdomain/mark/1.0"),
@@ -40,6 +44,7 @@ AUDIO_EXTENSIONS = {
 }
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = threading.Lock()
+HISTORY_WARNING: str | None = None
 POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sonora-job")
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
@@ -84,6 +89,138 @@ def output_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent / "musica"
     return Path(__file__).resolve().parent / "musica"
+
+
+def history_path() -> Path:
+    return output_root() / HISTORY_FILENAME
+
+
+def _persist_jobs_locked() -> None:
+    global HISTORY_WARNING
+    terminal_statuses = {"completed", "completed_with_errors", "failed"}
+    while len(JOBS) > MAX_HISTORY_JOBS:
+        oldest_terminal = next(
+            (job_id for job_id, job in JOBS.items() if job.get("status") in terminal_statuses),
+            None,
+        )
+        if oldest_terminal is None:
+            break
+        del JOBS[oldest_terminal]
+
+    path = history_path()
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", prefix=".sonora-history-",
+            suffix=".tmp", dir=path.parent, delete=False,
+        ) as history_file:
+            temporary_path = Path(history_file.name)
+            json.dump(list(JOBS.values()), history_file, ensure_ascii=False)
+            history_file.write("\n")
+            history_file.flush()
+            os.fsync(history_file.fileno())
+        os.replace(temporary_path, path)
+    except OSError as error:
+        warning = f"No se pudo guardar el historial en {path}: {error}"
+        if HISTORY_WARNING != warning:
+            print(f"[sonora] {warning}")
+        HISTORY_WARNING = warning
+    else:
+        HISTORY_WARNING = None
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            try:
+                temporary_path.unlink()
+            except OSError as error:
+                print(f"[sonora] No se pudo limpiar el archivo temporal {temporary_path}: {error}")
+
+
+def load_jobs_history() -> None:
+    global HISTORY_WARNING
+    path = history_path()
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        with JOBS_LOCK:
+            JOBS.clear()
+            HISTORY_WARNING = None
+        return
+    except (OSError, json.JSONDecodeError) as error:
+        warning = f"No se pudo leer el historial guardado en {path}: {error}"
+        print(f"[sonora] {warning}")
+        with JOBS_LOCK:
+            JOBS.clear()
+            HISTORY_WARNING = warning
+        return
+
+    if not isinstance(records, list):
+        warning = f"El historial guardado en {path} tiene un formato no válido."
+        print(f"[sonora] {warning}")
+        with JOBS_LOCK:
+            JOBS.clear()
+            HISTORY_WARNING = warning
+        return
+
+    loaded: dict[str, dict[str, Any]] = {}
+    warning = None
+    interrupted = False
+    active_statuses = {"queued", "loading", "processing"}
+    active_track_statuses = {"queued", "downloading", "converting"}
+    for job in records:
+        if (
+            not isinstance(job, dict)
+            or not isinstance(job.get("id"), str)
+            or not job["id"]
+            or not isinstance(job.get("identifier"), str)
+            or type(job.get("bitrate")) is not int
+            or job["bitrate"] not in BITRATES
+            or not isinstance(job.get("status"), str)
+            or not isinstance(job.get("tracks"), list)
+            or any(
+                not isinstance(track, dict) or not isinstance(track.get("status"), str)
+                for track in job["tracks"]
+            )
+        ):
+            warning = f"Se ignoró un trabajo con formato no válido en el historial {path}."
+            continue
+        if job["status"] in active_statuses:
+            job["status"] = "failed"
+            job["message"] = (
+                "El trabajo se interrumpió al cerrar Sonora. Añade de nuevo el elemento para intentarlo."
+            )
+            for track in job["tracks"]:
+                if track["status"] in active_track_statuses:
+                    track["status"] = "failed"
+                    track["message"] = "El trabajo se interrumpió al cerrar Sonora."
+            interrupted = True
+        loaded[job["id"]] = job
+
+    with JOBS_LOCK:
+        JOBS.clear()
+        JOBS.update(loaded)
+        HISTORY_WARNING = warning
+        if interrupted or warning or len(JOBS) > MAX_HISTORY_JOBS:
+            _persist_jobs_locked()
+            if warning and HISTORY_WARNING is None:
+                HISTORY_WARNING = warning
+
+
+def user_facing_error(error: Exception) -> str:
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code == 404:
+            return "Internet Archive no encontró el elemento o archivo. Comprueba el enlace y vuelve a intentarlo."
+        if error.code == 429:
+            return "Internet Archive está recibiendo demasiadas solicitudes. Espera un poco y vuelve a intentarlo."
+        return f"Internet Archive respondió con el error HTTP {error.code}. Inténtalo de nuevo más tarde."
+    if isinstance(error, urllib.error.URLError):
+        return "No se pudo conectar con Internet Archive. Comprueba tu conexión y vuelve a intentarlo."
+    if isinstance(error, PermissionError):
+        return "Windows no permitió guardar el archivo. Comprueba los permisos y que el archivo no esté abierto."
+    if isinstance(error, subprocess.TimeoutExpired):
+        return "La conversión tardó demasiado y se canceló. Prueba con otro archivo de audio."
+    if isinstance(error, RuntimeError):
+        return str(error).strip() or "Se produjo un error durante el trabajo."
+    return str(error) or f"Se produjo un error inesperado ({type(error).__name__})."
 
 
 def ffmpeg_executable() -> str | None:
@@ -178,12 +315,42 @@ def update_job(job_id: str, **changes: Any) -> None:
         job = JOBS.get(job_id)
         if job is not None:
             job.update(changes)
+            _persist_jobs_locked()
 
 
 def update_track(job_id: str, index: int, **changes: Any) -> None:
     with JOBS_LOCK:
         job = JOBS[job_id]
         job["tracks"][index].update(changes)
+        _persist_jobs_locked()
+
+
+def open_output_folder() -> str:
+    folder = output_root()
+    if not folder.is_dir():
+        raise FileNotFoundError(f"No existe la carpeta de música: {folder}")
+    operating_system = platform.system()
+    if operating_system == "Windows":
+        subprocess.Popen(["explorer.exe", str(folder)])
+        return str(folder)
+    command = "open" if operating_system == "Darwin" else "xdg-open"
+    if not shutil.which(command):
+        raise RuntimeError(
+            f"No se encontró {command}; abre la carpeta manualmente: {folder}"
+        )
+    result = subprocess.run(
+        [command, str(folder)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if result.returncode:
+        detail = result.stderr.strip()
+        raise RuntimeError(
+            f"No se pudo abrir la carpeta con {command}: {detail or result.returncode}"
+        )
+    return str(folder)
 
 
 def archive_download_url(identifier: str, filename: str) -> str:
@@ -255,7 +422,7 @@ def run_track(job_id: str, index: int, track: dict[str, Any], bitrate: int,
         if result.returncode != 0:
             detail = result.stderr.strip().splitlines()
             message = detail[-1] if detail else "ffmpeg no pudo convertir este archivo."
-            raise RuntimeError(message[:500])
+            raise RuntimeError(f"No se pudo convertir el audio con ffmpeg: {message[:500]}")
         try:
             output_descriptor = os.open(
                 output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666
@@ -274,7 +441,7 @@ def run_track(job_id: str, index: int, track: dict[str, Any], bitrate: int,
             output=str(output),
         )
     except (OSError, urllib.error.URLError, subprocess.SubprocessError, RuntimeError) as error:
-        update_track(job_id, index, status="failed", message=str(error)[:500])
+        update_track(job_id, index, status="failed", message=user_facing_error(error)[:500])
     finally:
         for temporary in (source_temp, converted_temp):
             if temporary is not None:
@@ -366,8 +533,9 @@ def execute_job(job_id: str, identifier: str, bitrate: int) -> None:
                 status=final_status,
                 message=f"Resultado: {processed} procesada(s), {skipped} omitida(s), {failures} fallida(s).",
             )
+            _persist_jobs_locked()
     except Exception as error:
-        update_job(job_id, status="failed", message=str(error)[:700])
+        update_job(job_id, status="failed", message=user_facing_error(error)[:700])
 
 
 class SonoraHandler(BaseHTTPRequestHandler):
@@ -388,6 +556,17 @@ class SonoraHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/api/health":
             self.send_json(200, {"status": "ok", "name": APP_NAME})
+            return
+        if self.path == "/api/jobs":
+            with JOBS_LOCK:
+                payload = {
+                    "jobs": copy.deepcopy(list(JOBS.values())),
+                    "historyWarning": HISTORY_WARNING,
+                    "canOpenFolder": ipaddress.ip_address(
+                        self.client_address[0]
+                    ).is_loopback,
+                }
+            self.send_json(200, payload)
             return
         if self.path.startswith("/api/jobs/"):
             job_id = self.path.removeprefix("/api/jobs/")
@@ -431,6 +610,20 @@ class SonoraHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def do_POST(self) -> None:
+        if self.path == "/api/open-folder":
+            try:
+                if not ipaddress.ip_address(self.client_address[0]).is_loopback:
+                    self.send_json(403, {"error": "Solo se puede abrir la carpeta desde este dispositivo."})
+                    return
+                folder = open_output_folder()
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                self.send_json(
+                    500,
+                    {"error": f"No se pudo abrir la carpeta de música: {error}"},
+                )
+                return
+            self.send_json(200, {"status": "ok", "folder": folder})
+            return
         if self.path != "/api/jobs":
             self.send_json(404, {"error": "Ruta no encontrada."})
             return
@@ -463,6 +656,7 @@ class SonoraHandler(BaseHTTPRequestHandler):
                 "folder": "",
                 "tracks": [],
             }
+            _persist_jobs_locked()
         POOL.submit(execute_job, job_id, identifier, bitrate)
         self.send_json(202, {"id": job_id})
 
@@ -481,6 +675,7 @@ def main() -> None:
             f"desde una carpeta accesible.\nDetalle: {error}"
         ) from error
 
+    load_jobs_history()
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8765"))
     server = ThreadingHTTPServer((host, port), SonoraHandler)

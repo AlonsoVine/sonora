@@ -1,8 +1,11 @@
+import json
 import unittest
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import app
@@ -67,6 +70,86 @@ class PlaylistValidationTests(unittest.TestCase):
         self.assertEqual(app.safe_component("CON", "fallback"), "_CON")
         self.assertEqual(app.safe_component("../album", "fallback"), "_album")
 
+    def test_history_is_persisted_and_running_jobs_are_marked_interrupted(self):
+        job = {
+            "id": "test-job",
+            "identifier": "sample_collection",
+            "bitrate": 192,
+            "status": "processing",
+            "message": "Convirtiendo.",
+            "title": "Sample",
+            "folder": "musica",
+            "tracks": [{"name": "song.flac", "status": "converting", "message": "Convirtiendo."}],
+        }
+        with TemporaryDirectory() as directory, patch.object(
+            app, "output_root", return_value=Path(directory)
+        ):
+            with app.JOBS_LOCK:
+                app.JOBS.clear()
+                app.JOBS[job["id"]] = job
+                app._persist_jobs_locked()
+                app.JOBS.clear()
+
+            app.load_jobs_history()
+
+            self.assertEqual(app.JOBS["test-job"]["status"], "failed")
+            self.assertIn("interrumpió al cerrar Sonora", app.JOBS["test-job"]["message"])
+            self.assertEqual(app.JOBS["test-job"]["tracks"][0]["status"], "failed")
+            self.assertTrue(app.history_path().is_file())
+            self.assertIsNone(app.HISTORY_WARNING)
+            with app.JOBS_LOCK:
+                app.JOBS.clear()
+
+    def test_corrupt_history_is_reported(self):
+        with TemporaryDirectory() as directory, patch.object(
+            app, "output_root", return_value=Path(directory)
+        ):
+            app.history_path().write_text("{invalid", encoding="utf-8")
+
+            app.load_jobs_history()
+
+            self.assertIsNotNone(app.HISTORY_WARNING)
+            self.assertIn("No se pudo leer el historial", app.HISTORY_WARNING)
+            with app.JOBS_LOCK:
+                app.JOBS.clear()
+                app.HISTORY_WARNING = None
+
+    def test_history_retains_only_the_latest_50_completed_jobs(self):
+        with TemporaryDirectory() as directory, patch.object(
+            app, "output_root", return_value=Path(directory)
+        ):
+            with app.JOBS_LOCK:
+                app.JOBS.clear()
+                for index in range(51):
+                    job_id = f"job-{index:02d}"
+                    app.JOBS[job_id] = {
+                        "id": job_id,
+                        "identifier": job_id,
+                        "bitrate": 192,
+                        "status": "completed",
+                        "tracks": [],
+                    }
+                app._persist_jobs_locked()
+                records = json.loads(app.history_path().read_text(encoding="utf-8"))
+                app.JOBS.clear()
+
+            self.assertEqual(len(records), 50)
+            self.assertEqual(records[0]["id"], "job-01")
+            self.assertEqual(records[-1]["id"], "job-50")
+
+    def test_remote_errors_explain_what_to_try(self):
+        not_found = urllib.error.HTTPError(
+            "https://archive.org/metadata/missing", 404, "Not Found", {}, None
+        )
+        try:
+            self.assertIn("Comprueba el enlace", app.user_facing_error(not_found))
+        finally:
+            not_found.close()
+        self.assertIn(
+            "Comprueba tu conexión",
+            app.user_facing_error(urllib.error.URLError("offline")),
+        )
+
     def test_ffmpeg_is_found_next_to_portable_executable(self):
         from pathlib import Path
 
@@ -116,6 +199,21 @@ class PlaylistValidationTests(unittest.TestCase):
                     self.assertGreater(len(response.read()), 0)
             with urllib.request.urlopen(f"{base_url}/api/health") as response:
                 self.assertEqual(response.status, 200)
+            with urllib.request.urlopen(f"{base_url}/api/jobs") as response:
+                history = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertIn("jobs", history)
+                self.assertIn("historyWarning", history)
+                self.assertTrue(history["canOpenFolder"])
+            request = urllib.request.Request(
+                f"{base_url}/api/open-folder", method="POST"
+            )
+            with patch.object(app, "open_output_folder", return_value="C:\\Musica") as open_folder:
+                with urllib.request.urlopen(request) as response:
+                    opened = json.loads(response.read())
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(opened["folder"], "C:\\Musica")
+                open_folder.assert_called_once_with()
         finally:
             server.shutdown()
             server.server_close()

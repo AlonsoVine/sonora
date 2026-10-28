@@ -83,8 +83,13 @@
       <section class="work-section" id="trabajos" aria-labelledby="work-title">
         <div class="section-heading">
           <div><div class="eyebrow"><span class="eyebrow-line"></span> EN CURSO Y RECIENTES</div><h2 id="work-title">Tus trabajos</h2></div>
-          <span class="work-count" id="work-count">0 TRABAJOS</span>
+          <div class="section-actions">
+            <span class="work-count" id="work-count">0 TRABAJOS</span>
+            <button type="button" class="secondary-button" id="open-folder-button" hidden>Abrir carpeta de música</button>
+          </div>
         </div>
+        <div class="form-feedback history-feedback" id="history-feedback" role="status" hidden></div>
+        <p class="history-note">Se guardan hasta 50 trabajos recientes; los que estén en curso se conservan.</p>
         <div class="empty-state" id="empty-state">
           <div class="empty-icon"><span>♫</span></div>
           <h3>Tu próxima escucha empieza aquí</h3>
